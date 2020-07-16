@@ -7,9 +7,9 @@ from pixell import enmap, curvedsky, utils
 from enlib import config, scanutils, scan as enscan
 from enact import filedb, actscan, actdata
 
-import io_errors as errors
-from mpi import bcast_array
-from spinmaps import trunc_alm
+from act_asymbeams.mpi import bcast_array
+from act_asymbeams.spinmaps import trunc_alm
+import act_asymbeams.io_errors as errors
 
 def process_input(istr):
     '''
@@ -409,8 +409,11 @@ def get_alm(lmax, comm, ps_file=None, alm_file=None, seed=None, root=0):
 
     elif alm_file is not None:
         if comm.Get_rank() == root:
-            alm = hp.fitsfunc.read_alm(alm_file)
-            alm = trunc_alm(alm, lmax)
+            alm, mmax = hp.fitsfunc.read_alm(alm_file, return_mmax=True)
+            alm = alm.astype(np.complex128)
+            lmax_alm = hp.Alm.getlmax(alm.size, mmax=mmax)
+            if lmax_alm > lmax:
+                alm = trunc_alm(alm, lmax)
         else:
             alm = None
         alm = bcast_array(alm, comm, from_rank=root)

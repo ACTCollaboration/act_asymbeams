@@ -10,7 +10,7 @@ from mpi4py import MPI
 
 import healpy as hp
 from pixell import enmap, curvedsky, utils, enplot, coordinates, wcsutils
-from act_asymbeam import io
+from act_asymbeams import io
 
 opj = os.path.join
 mpi_comm = MPI.COMM_WORLD

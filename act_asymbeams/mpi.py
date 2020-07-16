@@ -1,5 +1,4 @@
 import numpy as np
-from mpi4py import MPI
 
 from pixell import enmap
 
@@ -65,7 +64,7 @@ def bcast_map(imap, comm, root=0):
 
     return enmap.enmap(omap, wcs)
 
-def reduce_map(imap, comm, op=MPI.SUM, root=0):
+def reduce_map(imap, comm, root=0):
     '''
     Reduce enmap to root.
 
@@ -89,7 +88,7 @@ def reduce_map(imap, comm, op=MPI.SUM, root=0):
     else:
         omap = None
 
-    comm.Reduce(np.array(imap), omap, op=op, root=root)
+    comm.Reduce(np.array(imap), omap, root=root)
 
     if comm.Get_rank() == root:
         return enmap.enmap(omap, imap.wcs)
@@ -247,3 +246,4 @@ def scatter_map(fmap, comm, root=0, return_slices=False):
         return smap, slices
     else:
         return smap
+

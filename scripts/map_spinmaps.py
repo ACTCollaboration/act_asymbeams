@@ -1,14 +1,19 @@
 #!/usr/bin/env python
 import numpy as np
 import os
-from mpi4py import MPI
 import traceback
 
 import healpy as hp
 from pixell import enmap, enplot, utils, fft
 from enlib import config, pmat, array_ops
 from enact import filedb, nmat_measure
-from act_asymbeams import spinmaps, io, mpi, io_errors as errors
+
+from act_asymbeams import spinmaps
+from act_asymbeams import io
+from act_asymbeams import mpi
+from act_asymbeams import io_errors as errors
+
+from mpi4py import MPI
 
 opj = os.path.join
 mpi_comm = MPI.COMM_WORLD
@@ -44,6 +49,8 @@ if __name__ == '__main__':
         help='Tag appended to ouput files.')
     parser.add_argument("--smap-asymmetric-only", action="store_true",
         help='Scan using only azimuthally asymmetric part of the beam.')
+    parser.add_argument("--smap-symmetric-only", action="store_true",
+        help='Scan using only azimuthally symmetric part of the beam.')
     parser.add_argument("--smap-pairs-only", action="store_true",
         help='Scan and map using only paired detectors.')
     parser.add_argument("--smap-singles-only", action="store_true",
@@ -147,6 +154,7 @@ if __name__ == '__main__':
 
             if mpi_rank == 0:
                 blm, mmax = hp.fitsfunc.read_alm(filepath, return_mmax=True)
+                blm = blm.astype(np.complex128)
             else:
                 blm, mmax = None, None
             mmax = mpi_comm.bcast(mmax, root=0)
@@ -162,7 +170,8 @@ if __name__ == '__main__':
             smap = enmap.zeros((3,) + sshape[-2::], wcs=swcs, dtype=dtype)
             if not args.smap_asymmetric_only:
                 spinmaps.compute_spinmap_real(alm, blm, mmax, 0, smap[0])
-            spinmaps.compute_spinmap_real(alm, blm, mmax, 2, smap[1:])
+            if not args.smap_symmetric_only:
+                spinmaps.compute_spinmap_real(alm, blm, mmax, 2, smap[1:])
 
             del alm
             del blm
