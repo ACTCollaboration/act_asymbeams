@@ -369,7 +369,7 @@ def read_ps(ps_file, lmax):
 
 def get_alm(lmax, comm, ps_file=None, alm_file=None, seed=None, root=0):
     '''
-    Return (I-only) alm array on all ranks.
+    Return alm array on all ranks.
 
     Parameters
     ----------
@@ -387,7 +387,7 @@ def get_alm(lmax, comm, ps_file=None, alm_file=None, seed=None, root=0):
 
     Returns
     -------
-    alm : array
+    alm : (npol, nelem) array
         Alm array, same on all ranks.
 
     Raises
@@ -409,9 +409,17 @@ def get_alm(lmax, comm, ps_file=None, alm_file=None, seed=None, root=0):
 
     elif alm_file is not None:
         if comm.Get_rank() == root:
-            alm, mmax = hp.fitsfunc.read_alm(alm_file, return_mmax=True)
+            try:
+                alm, mmax = hp.fitsfunc.read_alm(alm_file, hdu=(1, 2, 3), 
+                                                 return_mmax=True)
+            except IndexError:
+                # Assume T-only.
+                alm, mmax = hp.fitsfunc.read_alm(alm_file, hdu=1, 
+                                                 return_mmax=True)
+                alm = alm[np.newaxis,:]
+
             alm = alm.astype(np.complex128)
-            lmax_alm = hp.Alm.getlmax(alm.size, mmax=mmax)
+            lmax_alm = hp.Alm.getlmax(alm.shape[1], mmax=mmax)
             if lmax_alm > lmax:
                 alm = trunc_alm(alm, lmax)
         else:

@@ -4,7 +4,7 @@ import os
 import traceback
 
 import healpy as hp
-from pixell import enmap, enplot, utils, fft
+from pixell import enmap, utils, fft
 from enlib import config, pmat, array_ops
 from enact import filedb, nmat_measure
 
@@ -69,8 +69,8 @@ if __name__ == '__main__':
 
     if mpi_rank == 0:
         try:
-            fileinfos = io.process_input(args.ipath_blm)            
-        except: 
+            fileinfos = io.process_input(args.ipath_blm)
+        except:
             traceback.print_exc()
             fileinfos = None
     else:
@@ -94,8 +94,9 @@ if __name__ == '__main__':
 
     area_tags = [os.path.splitext(os.path.split(a)[-1])[0] for a in args.area]
     out_tag = '_{}'.format(args.smap_tag) if args.smap_tag is not None else ''
-    
+
     outnames = {'spinmaps' : lambda tag: 'spinmaps_{}.fits'.format(tag),
+                'symmaps' : lambda tag: 'symmaps_{}.fits'.format(tag),
                 'omap' : lambda tag: 'omap_{}.fits'.format(tag)}
     if args.smap_write_rhs:
         outnames['rhs'] = lambda tag: 'rhs_{}.fits'.format(tag)
@@ -111,7 +112,7 @@ if __name__ == '__main__':
                 onames = [outnames[otype](tag) for otype in outnames.keys()]
                 fileinfos_keep, fileinfos_cut = io.remove_existing(
                     fileinfos, onames, args.odir)
-                for _, meta in fileinfos_cut: 
+                for _, meta in fileinfos_cut:
                     print('Skipping : {}, reason : output already exists.'.
                           format(tag if meta is None else meta + (tag,)))
             else:
@@ -141,7 +142,7 @@ if __name__ == '__main__':
             outdir = io.get_outdir(args.odir, meta=meta)
             if mpi_rank == 0:
                 utils.mkdir(outdir)
-                             
+
             filedb.init()
             sel = '{},'.format(area_tag) + args.smap_sel
             if meta is not None:
@@ -166,25 +167,49 @@ if __name__ == '__main__':
 
             alm = io.get_alm(args.smap_lmax, mpi_comm, seed=args.smap_seed,
                              ps_file=args.smap_ps, alm_file=args.smap_alm)
+            npol = alm.shape[0]
 
-            smap = enmap.zeros((3,) + sshape[-2::], wcs=swcs, dtype=dtype)
-            if not args.smap_asymmetric_only:
-                spinmaps.compute_spinmap_real(alm, blm, mmax, 0, smap[0])
             if not args.smap_symmetric_only:
-                spinmaps.compute_spinmap_real(alm, blm, mmax, 2, smap[1:])
+                # I.e. include asymmetric part.
+                spinmaps_slice = enmap.zeros((3,) + sshape[-2::], wcs=swcs, dtype=dtype)
+                spinmaps.compute_spinmap_real(alm[0], blm, mmax, 2, spinmaps_slice[1:])
+                # Note that spinmaps[0] is always zero. Bit wasteful but required for mapping.
+
+            if not args.smap_asymmetric_only:
+                # I.e. include symmetric part.
+                symmaps_slice = enmap.zeros((3,) + sshape[-2::], wcs=swcs, dtype=dtype)
+                spinmaps.compute_spinmap_real(alm[0], blm, mmax, 0, symmaps_slice[0])
+                if npol == 3:
+                    blmE, blmB = spinmaps.blm2eb(blm, mmax=mmax)
+                    spinmaps.compute_spinmap_complex(alm[1], alm[2], blmE, blmB, mmax, 2,
+                                                     symmaps_slice[1:], b00=blm[0])
+
+                    del blmE, blmB
 
             del alm
             del blm
 
-            spinmaps = mpi.gather_map((3,) + shape[-2::], wcs, smap,
-                            slices[mpi_rank], mpi_comm, root=0)
-            del smap
+            if not args.smap_symmetric_only:
+                spinmaps = mpi.gather_map((3,) + shape[-2::], wcs, spinmaps_slice,
+                                slices[mpi_rank], mpi_comm, root=0)
+                del spinmaps_slice
 
-            if mpi_rank == 0:
-                outname = opj(outdir, outnames['spinmaps'](area_tag + out_tag))
-                enmap.write_map(outname, spinmaps)
+                if mpi_rank == 0:
+                    outname = opj(outdir, outnames['spinmaps'](area_tag + out_tag))
+                    enmap.write_map(outname, spinmaps)
 
-            spinmaps = mpi.bcast_map(spinmaps, mpi_comm, root=0)
+                spinmaps = mpi.bcast_map(spinmaps, mpi_comm, root=0)
+            
+            if not args.smap_asymmetric_only:
+                symmaps = mpi.gather_map((3,) + shape[-2::], wcs, symmaps_slice,
+                                slices[mpi_rank], mpi_comm, root=0)
+                del symmaps_slice
+
+                if mpi_rank == 0:
+                    outname = opj(outdir, outnames['symmaps'](area_tag + out_tag))
+                    enmap.write_map(outname, symmaps)
+
+                symmaps = mpi.bcast_map(symmaps, mpi_comm, root=0)
 
             if mpi_rank == 0:
                 print('Reading scans for : {}'.format(sel))
@@ -198,9 +223,6 @@ if __name__ == '__main__':
                 if mpi_rank == 0:
                     print('Skipping : {}, reason : '.format(sel) + str(e))
                 continue
-
-            # omap, rhs, div = scan_and_bin(scans_local, spinmaps, args.no_noise_weight, mpi_comm)
-            # omap, rhs, div = scan_and_map(scans_local, spinmaps, cg_steps, mpi_comm)
 
             rhs = enmap.zeros((3,) + shape[-2::], wcs=wcs, dtype=dtype)
             tmp = enmap.zeros((3,) + shape[-2::], wcs=wcs, dtype=dtype)
@@ -222,14 +244,19 @@ if __name__ == '__main__':
                 pmap = pmat.PmatMap(scan, rhs[0])
                 pcut = pmat.PmatCut(scan)
                 junk = np.zeros(pcut.njunk, dtype=dtype)
-
-                # Save polangle, set polangle to zero for map2tod.
                 det_comps = pmap.scan.comps.copy()
-                hack_comps = np.zeros_like(det_comps)
-                hack_comps[:,:2] = 1.
-                pmap.scan.comps = hack_comps
 
-                pmap.forward(tod, spinmaps, tmul=0.)
+                if not args.smap_asymmetric_only:
+                    pmap.forward(tod, symmaps, tmul=0.)
+
+                if not args.smap_symmetric_only:
+                    # Set polangle to zero for map2tod.
+                    hack_comps = np.zeros_like(det_comps)
+                    hack_comps[:,:2] = 1.
+                    pmap.scan.comps = hack_comps
+                    tmul = 0. if args.smap_asymmetric_only else 1.
+
+                    pmap.forward(tod, spinmaps, tmul=tmul)
 
                 # Restore polangle for map2tod.
                 pmap.scan.comps = det_comps
@@ -253,7 +280,10 @@ if __name__ == '__main__':
 
             del tmp
             del scans_local
-            del spinmaps
+            if not args.smap_asymmetric_only:
+                del symmaps
+            if not args.smap_symmetric_only:
+                del spinmaps
 
             mpi_comm.Barrier()
             if mpi_comm.Get_rank() == 0:

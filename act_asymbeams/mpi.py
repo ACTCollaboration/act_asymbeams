@@ -64,7 +64,7 @@ def bcast_map(imap, comm, root=0):
 
     return enmap.enmap(omap, wcs)
 
-def reduce_map(imap, comm, root=0):
+def reduce_map(imap, comm, op=None, root=0):
     '''
     Reduce enmap to root.
 
@@ -73,7 +73,7 @@ def reduce_map(imap, comm, root=0):
     imap : enmap
     comm : mpi4py.MPI.Intracomm object
     op : mpi4py.MPI.Op object, optional
-        Operation during reduce.
+        Operation during reduce. Defaults to sum.
     root : int, optional
         Reduce map to this rank.
 
@@ -88,7 +88,10 @@ def reduce_map(imap, comm, root=0):
     else:
         omap = None
 
-    comm.Reduce(np.array(imap), omap, root=root)
+    if op is not None:
+        comm.Reduce(np.array(imap), omap, op=op, root=root)
+    else:
+        comm.Reduce(np.array(imap), omap, root=root)
 
     if comm.Get_rank() == root:
         return enmap.enmap(omap, imap.wcs)

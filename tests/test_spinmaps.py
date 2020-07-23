@@ -2,7 +2,12 @@ import numpy as np
 import unittest
 
 from pixell import enmap
-from act_asymbeams.spinmaps import spin2eb, blm2bl, compute_spinmap_real, trunc_alm
+from act_asymbeams.spinmaps import spin2eb
+from act_asymbeams.spinmaps import eb2spin
+from act_asymbeams.spinmaps import blm2bl
+from act_asymbeams.spinmaps import compute_spinmap_real
+from act_asymbeams.spinmaps import trunc_alm
+from act_asymbeams.spinmaps import blm2eb
 
 class TestSpinMap(unittest.TestCase):
 
@@ -53,6 +58,57 @@ class TestSpinMap(unittest.TestCase):
         np.testing.assert_array_almost_equal(blmB, blmB_exp)
         self.assertTrue(np.shares_memory(blmp2, blmE))
         self.assertTrue(np.shares_memory(blmm2, blmB))
+
+    def test_eb2spin(self):
+        
+        blmB = np.array(
+            [0, 0, 1j, 1j, 1j, 0, 2j, 2j, 2j, 3j, 3j, 3j, 4j, 4j, 5j],
+            dtype=np.complex128)        
+        blmE = np.array([0, 0, 1, 1, 1, 0, 2, 2, 2, 3, 3, 3, 4, 4, 5],
+                          dtype=np.complex128)
+        
+        blmm2_exp = -1 * (blmE - 1j * blmB)
+        blmp2_exp = -1 * (blmE + 1j * blmB)
+
+        blmm2, blmp2 = eb2spin(blmE, blmB)
+        np.testing.assert_array_almost_equal(blmm2, blmm2_exp)
+        np.testing.assert_array_almost_equal(blmp2, blmp2_exp)
+
+    def test_eb2spin_inplace(self):
+
+        blmB = np.array(
+            [0, 0, 1j, 1j, 1j, 0, 2j, 2j, 2j, 3j, 3j, 3j, 4j, 4j, 5j],
+            dtype=np.complex128)        
+        blmE = np.array([0, 0, 1, 1, 1, 0, 2, 2, 2, 3, 3, 3, 4, 4, 5],
+                          dtype=np.complex128)
+        
+        blmm2_exp = -1 * (blmE - 1j * blmB)
+        blmp2_exp = -1 * (blmE + 1j * blmB)
+
+        blmm2, blmp2 = eb2spin(blmE, blmB, inplace=True)
+
+        np.testing.assert_array_almost_equal(blmm2, blmm2_exp)
+        np.testing.assert_array_almost_equal(blmp2, blmp2_exp)
+
+        self.assertTrue(np.shares_memory(blmE, blmp2))
+        self.assertTrue(np.shares_memory(blmB, blmm2))
+
+    def test_eb2spin_inplace_round(self):
+
+        blmB_exp = np.array(
+            [0, 0, 1j, 1j, 1j, 0, 2j, 2j, 2j, 3j, 3j, 3j, 4j, 4j, 5j],
+            dtype=np.complex128)        
+        blmE_exp = np.array([0, 0, 1, 1, 1, 0, 2, 2, 2, 3, 3, 3, 4, 4, 5],
+                          dtype=np.complex128)
+        
+        blmm2, blmp2 = eb2spin(blmE_exp, blmB_exp, inplace=True)
+        blmE, blmB = spin2eb(blmm2, blmp2, inplace=True)
+        
+        np.testing.assert_array_almost_equal(blmE, blmE_exp)
+        np.testing.assert_array_almost_equal(blmB, blmB_exp)
+
+        self.assertTrue(np.shares_memory(blmE, blmE_exp))
+        self.assertTrue(np.shares_memory(blmB, blmB_exp))
 
     def test_blm2bl(self):
         
@@ -125,5 +181,43 @@ class TestSpinMap(unittest.TestCase):
         np.testing.assert_almost_equal(alm_trunc, alm_exp)
         self.assertFalse(alm_trunc.flags['OWNDATA'])
         self.assertTrue(alm_trunc.base is alm)
-
     
+    def test_blm2eb(self):
+        
+        blm = np.asarray([1, 1, 1, 1, 2j, 2j, 2j, 3j, 3j, 4j])         
+
+        blmm2_exp = np.asarray([0, 0, -3j, -3j, 0, 2j, 2j, 1, 1, 2j])
+        blmp2_exp = np.asarray([0, 0, 3j, 3j, 0, 0, 4j, 0, 0, 0])
+
+        blmE_exp = -0.5 * (blmp2_exp + blmm2_exp)
+        blmB_exp = 0.5j * (blmp2_exp - blmm2_exp)
+
+        blmE, blmB = blm2eb(blm)
+        np.testing.assert_array_almost_equal(blmE, blmE_exp)
+        np.testing.assert_array_almost_equal(blmB, blmB_exp)
+        self.assertTrue(blmE.flags['OWNDATA'])
+        self.assertTrue(blmB.flags['OWNDATA'])
+
+    def test_blm2eb_mmax(self):
+        
+        blm = np.asarray([1, 1, 1, 1, 2j, 2j, 2j, 3j, 3j])         
+
+        blmm2_exp = np.asarray([0, 0, -3j, -3j, 0, 2j, 2j, 1, 1])
+        blmp2_exp = np.asarray([0, 0, 3j, 3j, 0, 0, 0, 0, 0])
+
+        blmE_exp = -0.5 * (blmp2_exp + blmm2_exp)
+        blmB_exp = 0.5j * (blmp2_exp - blmm2_exp)
+
+        blmE, blmB = blm2eb(blm, mmax=2)
+        np.testing.assert_array_almost_equal(blmE, blmE_exp)
+        np.testing.assert_array_almost_equal(blmB, blmB_exp)
+        self.assertTrue(blmE.flags['OWNDATA'])
+        self.assertTrue(blmB.flags['OWNDATA'])
+        
+    def test_blm2eb_err(self):
+        
+        blm = np.asarray([1, 1, 1, 1, 2j, 2j, 2j])         
+        self.assertRaises(ValueError, blm2eb, blm, **{'mmax' : 1})
+
+        blm = np.ones((2, 10))
+        self.assertRaises(ValueError, blm2eb, blm)
